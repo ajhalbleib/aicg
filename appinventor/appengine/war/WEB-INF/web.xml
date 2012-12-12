@@ -234,6 +234,16 @@
     <servlet-name>receiveBuildServlet</servlet-name>
     <url-pattern>/ode2/receivebuild/*</url-pattern>
   </servlet-mapping>
+  <!-- receiveEclipseProject
+       Note: this servlet does not require user authentication -->
+  <servlet>
+    <servlet-name>receiveEclipseProjectServlet</servlet-name>
+    <servlet-class>com.google.appinventor.server.ReceiveEclipseProjectServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>receiveEclipseProjectServlet</servlet-name>
+    <url-pattern>/ode2/receiveEclipseProject/*</url-pattern>
+  </servlet-mapping>  
 
   <!-- Not sure what needs to replace GwtResourceServlet
   <servlet>

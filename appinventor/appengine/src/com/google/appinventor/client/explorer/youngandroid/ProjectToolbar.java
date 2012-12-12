@@ -11,6 +11,17 @@ import static com.google.appinventor.client.Ode.MESSAGES;
 import com.google.appinventor.client.OdeAsyncCallback;
 import com.google.appinventor.client.boxes.ProjectListBox;
 import com.google.appinventor.client.boxes.ViewerBox;
+import com.google.appinventor.client.explorer.commands.BuildCommand;
+import com.google.appinventor.client.explorer.commands.BuildEclipseProjectCommand;
+import com.google.appinventor.client.explorer.commands.ChainableCommand;
+import com.google.appinventor.client.explorer.commands.DownloadAsEclipseProjectCommand;
+import com.google.appinventor.client.explorer.commands.DownloadProjectOutputCommand;
+import com.google.appinventor.client.explorer.commands.SaveAllEditorsCommand;
+import com.google.appinventor.client.explorer.commands.SaveBlocksCommand;
+import com.google.appinventor.client.explorer.commands.ShowProgressBarCommand;
+import com.google.appinventor.client.explorer.commands.ShowProgressBarForEclipseCommand;
+import com.google.appinventor.client.explorer.commands.WaitForBuildResultCommand;
+import com.google.appinventor.client.explorer.commands.WaitForEclipseProjectBuildResultCommand;
 import com.google.appinventor.client.explorer.project.Project;
 import com.google.appinventor.client.tracking.Tracking;
 import com.google.appinventor.client.utils.Downloader;
@@ -22,6 +33,8 @@ import com.google.appinventor.client.wizards.ProjectUploadWizard;
 import com.google.appinventor.client.wizards.youngandroid.NewYoungAndroidProjectWizard;
 import com.google.appinventor.client.youngandroid.CodeblocksManager;
 import com.google.appinventor.shared.rpc.ServerLayout;
+import com.google.appinventor.shared.rpc.project.ProjectRootNode;
+import com.google.appinventor.shared.rpc.project.youngandroid.YoungAndroidProjectNode;
 import com.google.appinventor.shared.rpc.user.UserInfoServiceAsync;
 import com.google.appinventor.shared.storage.StorageUtil;
 import com.google.common.collect.Lists;
@@ -66,6 +79,8 @@ public class ProjectToolbar extends Toolbar {
     List<ToolbarItem> otherItems = Lists.newArrayList();
     otherItems.add(new ToolbarItem(WIDGET_NAME_DOWNLOAD_SOURCE,
         MESSAGES.downloadSourceButton(), new DownloadSourceAction()));
+    otherItems.add(new ToolbarItem(WIDGET_NAME_DOWNLOAD_SOURCE,
+            MESSAGES.downloadAsEclipseProject(), new DownloadAsEclipseProject()));
     otherItems.add(new ToolbarItem(WIDGET_NAME_UPLOAD_SOURCE,
         MESSAGES.uploadSourceButton(), new UploadSourceAction()));
     otherItems.add(null);
@@ -225,6 +240,21 @@ public class ProjectToolbar extends Toolbar {
           ServerLayout.DOWNLOAD_PROJECT_SOURCE + "/" + project.getProjectId());
     }
   }
+ 
+	private static class DownloadAsEclipseProject implements Command {
+	      @Override
+	      public void execute() {
+	        ProjectRootNode projectRootNode = Ode.getInstance().getCurrentYoungAndroidProjectRootNode();
+	        if (projectRootNode != null) {
+	          String target = YoungAndroidProjectNode.YOUNG_ANDROID_TARGET_ANDROID;
+	          ChainableCommand cmd = new BuildEclipseProjectCommand(target,
+	        	  new ShowProgressBarForEclipseCommand(target,
+	        		  new WaitForEclipseProjectBuildResultCommand(target, 
+	        			  new DownloadAsEclipseProjectCommand(target)),"DownloadEclipseProjectAction"));
+	          cmd.startExecuteChain(Tracking.PROJECT_ACTION_DOWNLOAD_AS_ECLIPSE_PROJECT_YA, projectRootNode);
+	        }
+	      }
+	} 
 
   private static class DownloadUserSourceAction implements Command {
     @Override

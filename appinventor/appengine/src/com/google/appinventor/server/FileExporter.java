@@ -32,6 +32,10 @@ public interface FileExporter {
    */
   RawFile exportProjectOutputFile(String userId, long projectId, @Nullable String target)
       throws IOException;
+  RawFile exportEclipseProjectOutputFile(String userId, long projectId, @Nullable String target)
+	      throws IOException;  
+  RawFile exportJavaSourcesOutputFile(String userId, long projectId, @Nullable String target)
+	      throws IOException;  
 
   /**
    * Exports the project source files as a zip.

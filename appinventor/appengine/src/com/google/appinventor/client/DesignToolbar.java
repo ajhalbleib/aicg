@@ -9,9 +9,11 @@ import static com.google.appinventor.client.Ode.MESSAGES;
 import com.google.appinventor.client.editor.youngandroid.YaFormEditor;
 import com.google.appinventor.client.explorer.commands.AddFormCommand;
 import com.google.appinventor.client.explorer.commands.BuildCommand;
+import com.google.appinventor.client.explorer.commands.BuildEclipseProjectCommand;
 import com.google.appinventor.client.explorer.commands.ChainableCommand;
 import com.google.appinventor.client.explorer.commands.CopyYoungAndroidProjectCommand;
 import com.google.appinventor.client.explorer.commands.DeleteFileCommand;
+import com.google.appinventor.client.explorer.commands.DownloadAsEclipseProjectCommand;
 import com.google.appinventor.client.explorer.commands.DownloadProjectOutputCommand;
 import com.google.appinventor.client.explorer.commands.DownloadToPhoneCommand;
 import com.google.appinventor.client.explorer.commands.EnsurePhoneConnectedCommand;
@@ -19,7 +21,9 @@ import com.google.appinventor.client.explorer.commands.SaveAllEditorsCommand;
 import com.google.appinventor.client.explorer.commands.SaveBlocksCommand;
 import com.google.appinventor.client.explorer.commands.ShowBarcodeCommand;
 import com.google.appinventor.client.explorer.commands.ShowProgressBarCommand;
+import com.google.appinventor.client.explorer.commands.ShowProgressBarForEclipseCommand;
 import com.google.appinventor.client.explorer.commands.WaitForBuildResultCommand;
+import com.google.appinventor.client.explorer.commands.WaitForEclipseProjectBuildResultCommand;
 import com.google.appinventor.client.tracking.Tracking;
 import com.google.appinventor.client.widgets.Toolbar;
 import com.google.appinventor.client.youngandroid.CodeblocksManager;
@@ -49,6 +53,7 @@ public class DesignToolbar extends Toolbar {
   private static final String WIDGET_NAME_DOWNLOAD = "Download";
   private static final String WIDGET_NAME_DOWNLOAD_TO_PHONE = "DownloadToPhone";
   private static final String WIDGET_NAME_OPEN_BLOCKS_EDITOR = "OpenBlocksEditor";
+  private static final String WIDGET_NAME_DOWNLOAD_JAVA_SOURCES = "DownloadJavaSources";
 
   private boolean codeblocksButtonCancel = false;
 
@@ -78,6 +83,8 @@ public class DesignToolbar extends Toolbar {
           new RemoveFormAction()));
     }
 
+    addButton(new ToolbarItem(WIDGET_NAME_DOWNLOAD_JAVA_SOURCES,
+            MESSAGES.downloadJavaFiles(), new DownloadJavaFilesAction()), true);
     addButton(new ToolbarItem(WIDGET_NAME_OPEN_BLOCKS_EDITOR,
         MESSAGES.openBlocksEditorButton(), new OpenBlocksEditorAction()), true);
 
@@ -181,6 +188,21 @@ public class DesignToolbar extends Toolbar {
         }
       }
     }
+  
+	private static class DownloadJavaFilesAction implements Command {
+	      @Override
+	      public void execute() {
+	        ProjectRootNode projectRootNode = Ode.getInstance().getCurrentYoungAndroidProjectRootNode();
+	        if (projectRootNode != null) {
+	          String target = YoungAndroidProjectNode.YOUNG_ANDROID_TARGET_ANDROID;
+	          ChainableCommand cmd = new BuildEclipseProjectCommand(target, BuildEclipseProjectCommand.JAVA_SOURCES_ONLY, 
+	        		  new ShowProgressBarForEclipseCommand(target,BuildEclipseProjectCommand.JAVA_SOURCES_ONLY,
+	        		      new WaitForEclipseProjectBuildResultCommand(target, BuildEclipseProjectCommand.JAVA_SOURCES_ONLY,
+	        				  new DownloadAsEclipseProjectCommand(target, BuildEclipseProjectCommand.JAVA_SOURCES_ONLY)),"DownloadJavaFilesAction"));
+	          cmd.startExecuteChain(Tracking.PROJECT_ACTION_DOWNLOAD_AS_ECLIPSE_PROJECT_YA, projectRootNode);
+	        }
+	      }
+	}   
 
     private class DownloadAction implements Command {
       @Override

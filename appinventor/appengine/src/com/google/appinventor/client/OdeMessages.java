@@ -5,6 +5,7 @@
 
 package com.google.appinventor.client;
 
+import com.google.appinventor.client.explorer.commands.DownloadAsEclipseProjectCommand;
 import com.google.gwt.i18n.client.Messages;
 
 /**
@@ -82,6 +83,10 @@ public interface OdeMessages extends Messages {
   @Description("Confirmation query for removing a screen")
   String reallyDeleteForm(String formName);
 
+  @DefaultMessage("Download Java Files")
+  @Description("Label of the button for opening the blocks editor")
+  String downloadJavaFiles();
+ 
   @DefaultMessage("Open the Blocks Editor")
   @Description("Label of the button for opening the blocks editor")
   String openBlocksEditorButton();
@@ -768,6 +773,10 @@ public interface OdeMessages extends Messages {
   @Description("Label of the button for downloading source")
   String downloadSourceButton();
 
+  @DefaultMessage("Download as Eclipse Project")
+  @Description("Label of the button for downloading source")
+  String downloadAsEclipseProject();
+  
   @DefaultMessage("Upload Source")
   @Description("Label of the button for uploading source")
   String uploadSourceButton();

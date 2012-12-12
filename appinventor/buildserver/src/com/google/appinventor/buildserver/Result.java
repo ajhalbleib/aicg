@@ -36,6 +36,8 @@ public class Result {
   public static final int SUCCESS = 0;
   public static final int GENERAL_FAILURE = 1;
   public static final int YAIL_GENERATION_ERROR = 2;
+  public static final int ECLIPSE_PROJECT_GENERATION_ERROR = 3;
+  public static final int YAIL_TO_JAVA_GENERATION_ERROR = 4;
 
   private int result;
   private String output;

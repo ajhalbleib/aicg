@@ -150,6 +150,17 @@ public interface ProjectService extends RemoteService {
    * @return  results of invoking the build command
    */
   RpcResult build(long projectId, String target);
+  
+  /**
+   * Invokes a buildEclipseProject command for the project on the back-end.
+   *
+   * @param projectId  project ID
+   * @param target  build target (optional, implementation dependent)
+   *
+   * @return  results of invoking the buildEclipseProject command
+   */
+  RpcResult buildEclipseProject(long projectId, String target, int buildOption);
+  
 
   /**
    * Gets the result of a build command for the project from the back-end.
@@ -163,6 +174,7 @@ public interface ProjectService extends RemoteService {
    *           -1: Build is not yet done.
    */
   RpcResult getBuildResult(long projectId, String target);
+  RpcResult getEclipseProjectBuildResult(long projectId, String target, int buildOption);  
 
   /**
    * Adds a new file to the given project.

@@ -265,6 +265,22 @@ public class ProjectServiceImpl extends OdeRemoteServiceServlet implements Proje
     return getProjectRpcImpl(userId, projectId).build(
         userInfoProvider.getUser(), projectId, target);
   }
+  
+  /**
+   * Invokes a buildEclipseProject command for the project on the back-end.
+   *
+   * @param projectId  project ID
+   * @param target  build target (optional, implementation dependent)
+   *
+   * @return  results of build
+   */
+  @Override
+  public RpcResult buildEclipseProject(long projectId, String target, int buildOption) {
+    // Dispatch
+    final String userId = userInfoProvider.getUserId();
+    return getProjectRpcImpl(userId, projectId).buildEclipseProject(
+        userInfoProvider.getUser(), projectId, target, buildOption);
+  }  
 
   /**
    * Gets the result of a build command for the project.
@@ -284,6 +300,14 @@ public class ProjectServiceImpl extends OdeRemoteServiceServlet implements Proje
     return getProjectRpcImpl(userId, projectId).getBuildResult(
         userInfoProvider.getUser(), projectId, target);
   }
+  
+  @Override
+  public RpcResult getEclipseProjectBuildResult(long projectId, String target, int buildOption) {
+    // Dispatch
+    final String userId = userInfoProvider.getUserId();
+    return getProjectRpcImpl(userId, projectId).getEclipseProjectBuildResult(
+        userInfoProvider.getUser(), projectId, target, buildOption);
+  }  
 
   /*
    * Write the serialized response out to stdout. This is a very unusual thing

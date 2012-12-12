@@ -126,7 +126,9 @@
       <fileset dir="${build.dir}/components"
                includes="AndroidRuntime.jar,simple_components.txt,simple_components_permissions.json,simple_components_libraries.json"/>
     </copy>
-    <copy toFile="${classes.files.dir}/YailGenerator.jar" file="${local.build.dir}/YailGenerator.jar" />
+    <copy toFile="${classes.files.dir}/app-inventor-to-eclipse-project.jar" file="${lib.dir}/yava/app-inventor-to-eclipse-project.jar" />
+    <copy toFile="${classes.files.dir}/yail-to-java.jar" file="${lib.dir}/yava/yail-to-java.jar" />
+  	<copy toFile="${classes.files.dir}/YailGenerator.jar" file="${local.build.dir}/YailGenerator.jar" />
     <copy toFile="${classes.files.dir}/kawa.jar" file="${lib.dir}/kawa/kawa-1.11-modified.jar" />
     <copy toFile="${classes.files.dir}/bugsense3.0.5.jar" file="${lib.dir}/bugsense/bugsense3.0.5.jar" />
     <copy toFile="${classes.files.dir}/twitter4j.jar" file="${lib.dir}/twitter/twitter4j-core-android-2.2.6.jar" />

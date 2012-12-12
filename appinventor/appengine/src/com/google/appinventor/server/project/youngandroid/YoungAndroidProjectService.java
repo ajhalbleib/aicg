@@ -103,6 +103,9 @@ public final class YoungAndroidProjectService extends CommonProjectService {
   // Build folder path
   private static final String BUILD_FOLDER = "build";
 
+  private static final String JAVA_SOURCES_FOLDER = "java";
+  private static final String ECLIPSE_PROJECT_FOLDER = "eclipse";
+
   public static final String PROJECT_KEYSTORE_LOCATION = "android.keystore";
 
   private static final String KEYSTORE_FILE_NAME = YoungAndroidProjectService.PROJECT_DIRECTORY +
@@ -552,6 +555,142 @@ public final class YoungAndroidProjectService extends CommonProjectService {
     return new RpcResult(true, "Building " + projectName, "");
   }
 
+  /**
+   * Make a request to the Build Server to build a Eclipse project with the source provide in Zip 
+   * format. The Build Server will asynchronously post the results of the build via the 
+   * {@link com.google.appinventor.server.ReceiveBuildServlet}
+   * A later call will need to be made by the client in order to get those results.
+   *
+   * @param user the User that owns the {@code projectId}.
+   * @param projectId  project id to be built
+   * @param target  build target (optional, implementation dependent)
+   *
+   * @return an RpcResult reflecting the call to the Build Server
+   */
+  @Override
+  public RpcResult buildEclipseProject(User user, long projectId, String target, int buildOption) {
+    String userId = user.getUserId();
+    String projectName = storageIo.getProjectName(userId, projectId);
+    String outputFileDir = null; 
+    
+    if(buildOption == 1) 
+    	outputFileDir = ECLIPSE_PROJECT_FOLDER + '/' + target;
+    else
+    	outputFileDir = JAVA_SOURCES_FOLDER + '/' + target; 
+    
+    // Delete the existing build output files, if any, so that future attempts to get it won't get
+    // old versions.
+    if(buildOption == 1) {
+	    List<String> buildEclipseProjectOutputFiles = storageIo.getEclipseProjectOutputFiles(userId, projectId);
+	    for (String buildEclipseProjectOutputFile : buildEclipseProjectOutputFiles) {
+	      storageIo.deleteFile(userId, projectId, buildEclipseProjectOutputFile);
+	    }
+  	} else if (buildOption == 2) {
+	    List<String> buildJavaSourceOutputFiles = storageIo.getJavaSourceOutputFiles(userId, projectId);
+	    for (String buildJavaSourceOutputFile : buildJavaSourceOutputFiles) {
+	      storageIo.deleteFile(userId, projectId, buildJavaSourceOutputFile);
+	    }  		
+  	}
+    
+    URL buildServerUrl = null;
+    ProjectSourceZip zipFile = null;
+    try {
+      buildServerUrl = new URL(getEclipseProjectBuildServerUrlStr(
+          user.getUserEmail(),
+          userId,
+          projectId,
+          outputFileDir,
+          buildOption));
+      HttpURLConnection connection = (HttpURLConnection) buildServerUrl.openConnection();
+      connection.setDoOutput(true);
+      connection.setRequestMethod("POST");
+
+      BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(connection.getOutputStream());
+      FileExporter fileExporter = new FileExporterImpl();
+      zipFile = fileExporter.exportProjectSourceZip(userId, projectId, false,
+          /* includeAndroidKeystore */ true,
+          projectName + ".zip");
+      bufferedOutputStream.write(zipFile.getContent());
+      bufferedOutputStream.flush();
+      bufferedOutputStream.close();
+
+      int responseCode = 0;
+      try {
+          responseCode = connection.getResponseCode();
+      } catch (IOException e) {
+          throw new CouldNotFetchException();
+      }
+      if (responseCode != HttpURLConnection.HTTP_OK) {
+        // Put the HTTP response code into the RpcResult so the client code in BuildCommand.java
+        // can provide an appropriate error message to the user.
+        // NOTE(lizlooney) - There is some weird bug/problem with HttpURLConnection. When the
+        // responseCode is 503, connection.getResponseMessage() returns "OK", but it should return
+        // "Service Unavailable". If I make the request with curl and look at the headers, they
+        // have the expected error message.
+        // For now, the moral of the story is: don't use connection.getResponseMessage().
+        String error = "Build server responded with response code " + responseCode + ".";
+        try {
+          String content = readContent(connection.getInputStream());
+          if (content != null && !content.isEmpty()) {
+            error += "\n" + content;
+          }
+        } catch (IOException e) {
+          // No content. That's ok.
+        }
+        try {
+          String errorContent = readContent(connection.getErrorStream());
+          if (errorContent != null && !errorContent.isEmpty()) {
+            error += "\n" + errorContent;
+          }
+        } catch (IOException e) {
+          // No error content. That's ok.
+        }
+        if (responseCode == HttpURLConnection.HTTP_CONFLICT) {
+          // The build server is not compatible with this App Inventor instance. Log this as severe
+          // so the owner of the app engine instance will know about it.
+          LOG.severe(error);
+        }
+
+        return new RpcResult(responseCode, "", StringUtils.escape(error));
+      }
+    } catch (MalformedURLException e) {
+      CrashReport.createAndLogError(LOG, null,
+          buildErrorMsg("MalformedURLException", buildServerUrl, userId, projectId), e);
+      return new RpcResult(false, "", e.getMessage());
+    } catch (IOException e) {
+      CrashReport.createAndLogError(LOG, null,
+          buildErrorMsg("IOException", buildServerUrl, userId, projectId), e);
+      return new RpcResult(false, "", e.getMessage());
+    } catch (CouldNotFetchException e) {
+        CrashReport.createAndLogError(LOG, null,
+                buildErrorMsg("CouldNotFetchException", buildServerUrl, userId, projectId), e);
+      return new RpcResult(false, "", " Can not contact the BuildServer at " + buildServerUrl.getHost());
+    } catch (EncryptionException e) {
+      CrashReport.createAndLogError(LOG, null,
+          buildErrorMsg("EncryptionException", buildServerUrl, userId, projectId), e);
+      return new RpcResult(false, "", e.getMessage());
+    } catch (RuntimeException e) {
+      // In particular, we often see RequestTooLargeException (if the zip is too
+      // big) and ApiProxyException. There may be others.
+      Throwable wrappedException = e;
+      if (e instanceof ApiProxy.RequestTooLargeException && zipFile != null) {
+        int zipFileLength = zipFile.getContent().length;
+        if (zipFileLength >= (5 * 1024 * 1024) /* 5 MB */) {
+          wrappedException = new IllegalArgumentException(
+              "Sorry, can't package projects larger than 5MB."
+              + " Yours is " + zipFileLength + " bytes.", e);
+        } else {
+          wrappedException = new IllegalArgumentException(
+              "Sorry, project was too large to package (" + zipFileLength + " bytes)");
+        }
+      }
+      CrashReport.createAndLogError(LOG, null,
+          buildErrorMsg("RuntimeException", buildServerUrl, userId, projectId), wrappedException);
+      return new RpcResult(false, "", wrappedException.getMessage());
+    }
+    return new RpcResult(true, "Building Eclipse project for " + projectName, "");
+  }
+
   private String buildErrorMsg(String exceptionName, URL buildURL, String userId, long projectId) {
     return "Request to build failed with " + exceptionName + ", user=" + userId
         + ", project=" + projectId + ", build URL is " + buildURL
@@ -577,6 +716,28 @@ public final class YoungAndroidProjectService extends CommonProjectService {
                                + "/" + fileName,
                                "UTF-8");
   }
+  
+  // Note that this is a function rather than just a constant because we assume it will get
+  // a little more complicated when we want to get the URL from an App Engine config file or
+  // command line argument.
+  private String getEclipseProjectBuildServerUrlStr(String userName, String userId,
+                                      long projectId, String fileName, int buildOption)
+      throws UnsupportedEncodingException, EncryptionException {
+    return "http://" + buildServerHost.get() + "/buildserver/build-eclipse-project-from-zip-async"
+           + "?uname=" + URLEncoder.encode(userName, "UTF-8")
+           + (sendGitVersion.get()
+               ? "&gitBuildVersion="
+                 + URLEncoder.encode(GitBuildId.getVersion(), "UTF-8")
+               : "")
+           + "&buildOption="+buildOption   
+           + "&callback="
+           + URLEncoder.encode("http://" + getCurrentHost() + ServerLayout.ODE_BASEURL_NOAUTH
+                               + ServerLayout.RECEIVE_ECLIPSE_PROJECT_SERVLET + "/"
+                               + Security.encryptUserAndProjectId(userId, projectId)
+                               + "/" + buildOption
+                               + "/" + fileName,
+                               "UTF-8");
+  }  
 
   private String getCurrentHost() {
     if (Server.isProductionServer()) {
@@ -642,6 +803,42 @@ public final class YoungAndroidProjectService extends CommonProjectService {
     return buildResult;
   }
 
+  @Override
+  public RpcResult getEclipseProjectBuildResult(User user, long projectId, String target, int buildOption) {
+    String userId = user.getUserId();
+    String buildOutputFileName = ""; 
+    List<String> outputFiles = null;
+    String outputFileDir = null;
+    if(buildOption == 1) {
+    	buildOutputFileName = ECLIPSE_PROJECT_FOLDER + '/' + target + '/' + "build.out";
+    	outputFileDir = ECLIPSE_PROJECT_FOLDER + '/' + target;
+    	outputFiles = storageIo.getEclipseProjectOutputFiles(userId, projectId);
+    } else if(buildOption == 2) { 
+    	buildOutputFileName = JAVA_SOURCES_FOLDER + '/' + target + '/' + "build.out"; 
+    	outputFileDir = JAVA_SOURCES_FOLDER + '/' + target;
+    	outputFiles = storageIo.getJavaSourceOutputFiles(userId, projectId);
+    }
+
+    updateEclipseProjectCurrentProgress(user, projectId, target,outputFileDir,buildOption);
+    RpcResult buildResult = new RpcResult(-1, ""+currentProgress, ""); // Build not finished
+    for (String outputFile : outputFiles) {
+      if (buildOutputFileName.equals(outputFile)) {
+        String outputStr = storageIo.downloadFile(userId, projectId, outputFile, "UTF-8");
+        try {
+          JSONObject buildResultJsonObj = new JSONObject(outputStr);
+          buildResult = new RpcResult(buildResultJsonObj.getInt("result"),
+                                      buildResultJsonObj.getString("output"),
+                                      buildResultJsonObj.getString("error"),
+                                      outputStr);
+        } catch (JSONException e) {
+          buildResult = new RpcResult(1, "", "");
+        }
+        break;
+      }
+    }
+    return buildResult;
+  }  
+
   /**
    * Check if there are any build progress available for the given user's project
    *
@@ -691,7 +888,53 @@ public final class YoungAndroidProjectService extends CommonProjectService {
         // that's ok, nothing to do
       }
   }
+  /**
+   * Check if there are any build progress available for the given user's project
+   *
+   * @param user the User that owns the {@code projectId}.
+   * @param projectId  project id to be built
+   * @param target  build target (optional, implementation dependent)
+   * @return an RpcResult reflecting the call to the Build Server. The following values may be in
+   *         RpcResult.result:
+   *            0:  Build is done and was successful
+   *            1:  Build is done and was unsuccessful
+   *            2:  Yail generation failed
+   *            3:	Eclipse Project generation failed
+   *           -1:  Build is not yet done.
+   */
+  public void updateEclipseProjectCurrentProgress(User user, long projectId, String target, String outputFileDir, int buildOption) {
+    try {
+      String userId = user.getUserId();
+      URL eclipseProjectUrl = null;
+      eclipseProjectUrl = new URL(getEclipseProjectBuildServerUrlStr(user.getUserEmail(), userId,
+              projectId, outputFileDir, buildOption));
+      HttpURLConnection connection = (HttpURLConnection) eclipseProjectUrl.openConnection();
+      connection.setDoOutput(true);
+      connection.setRequestMethod("POST");
 
+      int responseCode = connection.getResponseCode();
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+          try {
+            String content = readContent(connection.getInputStream());
+            if (content != null && !content.isEmpty()) {
+              LOG.info("The current progress is " + content + "%.");
+              currentProgress = Integer.parseInt(content);
+            }
+          } catch (IOException e) {
+            // No content. That's ok.
+          }
+         }
+      } catch (MalformedURLException e) {
+        // that's ok, nothing to do
+      } catch (IOException e) {
+        // that's ok, nothing to do
+      } catch (EncryptionException e) {
+        // that's ok, nothing to do
+      } catch (RuntimeException e) {
+        // that's ok, nothing to do
+      }
+  }
+  
   /**
    * Special Exception for the open connect
    */

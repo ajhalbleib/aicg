@@ -102,7 +102,9 @@ public class BuildServer {
     new MediaType("application", "zip", ImmutableMap.of("charset", "utf-8"));
 
   private static final AtomicInteger buildCount = new AtomicInteger(0);
+  private static final AtomicInteger eclipseBuildCount = new AtomicInteger(0);
 
+  
   // The number of build requests for this server run
   private static final AtomicInteger asyncBuildRequests = new AtomicInteger(0);
 
@@ -114,6 +116,18 @@ public class BuildServer {
 
   //The number of failed build requests for this server run
   private static final AtomicInteger failedBuildRequests = new AtomicInteger(0);
+  
+  // The number of build requests for this server run
+  private static final AtomicInteger asyncEclipseBuildRequests = new AtomicInteger(0);
+
+  // The number of rejected build requests for this server run
+  private static final AtomicInteger rejectedAsyncEclipseBuildRequests = new AtomicInteger(0);
+
+  //The number of successful build requests for this server run
+  private static final AtomicInteger successfulEclipseBuildRequests = new AtomicInteger(0);
+
+  //The number of failed build requests for this server run
+  private static final AtomicInteger failedEclipseBuildRequests = new AtomicInteger(0);
 
   //The number of failed build requests for this server run
   private static int maximumActiveBuildTasks = 0;
@@ -130,6 +144,9 @@ public class BuildServer {
   // The built APK file for this build request, if any.
   private File outputApk;
 
+  // The built Eclipse project zip file for this build request, if any.
+  private File outputEclipseZip;
+  
   // The temp directory that we're building in.
   private File outputDir;
 
@@ -188,6 +205,12 @@ public class BuildServer {
     variables.put("successful-async-build-requests", successfulBuildRequests.get() + "");
     variables.put("failed-async-build-requests", failedBuildRequests.get() + "");
 
+    // Eclipse Project Build requests
+    variables.put("count-async-eclipse-build-requests", asyncEclipseBuildRequests.get() + "");
+    variables.put("rejected-async-eclipse-build-requests", rejectedAsyncEclipseBuildRequests.get() + "");
+    variables.put("successful-async-eclipse-build-requests", successfulEclipseBuildRequests.get() + "");
+    variables.put("failed-async-eclipse-build-requests", failedEclipseBuildRequests.get() + "");
+    
     // Build tasks
     int max = buildExecutor.getMaxActiveTasks();
     if (max == 0) {
@@ -441,6 +464,132 @@ public class BuildServer {
       .entity("" + projectBuilder.getProgress()).build();
   }
 
+  @POST
+  @Path("build-eclipse-project-from-zip-async")
+  @Produces(MediaType.TEXT_PLAIN)
+  public Response buildEclipseProjectFromZipAsync(
+    @QueryParam("uname") final String userName,
+    @QueryParam("callback") final String callbackUrlStr,
+    @QueryParam("buildOption") final int buildOption,
+    @QueryParam("gitBuildVersion") final String gitBuildVersion,
+    final File inputZipFile) throws IOException {
+    // Set the inputZip field so we can delete the input zip file later in
+    // cleanUp.
+    inputZip = inputZipFile;
+    inputZip.deleteOnExit(); // In case build server is killed before cleanUp executes.
+    String requesting_host = (new URL(callbackUrlStr)).getHost();
+
+    //for the request for update part, the file should be empty
+    if (inputZip.length() == 0L) {
+      cleanUp();
+    } else {
+      if (commandLineOptions.requiredHosts != null) {
+        boolean oktoproceed = false;
+        for (String host : commandLineOptions.requiredHosts) {
+          if (host.equals(requesting_host)) {
+            oktoproceed = true;
+            break;}
+        }
+
+        if (oktoproceed) {
+          LOG.info("requesting host (" + requesting_host + ") is in the allowed host list request will be honored.");
+        } else {
+          // Return an error
+          LOG.info("requesting host (" + requesting_host + ") is NOT in the allowed host list request will be rejected.");
+          return Response.status(Response.Status.FORBIDDEN).type(MediaType.TEXT_PLAIN_TYPE).entity("You are not permitted to use this build server.").build();
+        }
+      } else {
+        LOG.info("requiredHosts is not set, no restriction on callback url.");
+      }
+
+      asyncEclipseBuildRequests.incrementAndGet();
+
+      if (gitBuildVersion != null && !gitBuildVersion.isEmpty()) {
+        if (!gitBuildVersion.equals(GitBuildId.getVersion())) {
+          // This build server is not compatible with the App Inventor instance. Log this as severe
+          // so the owner of the build server will know about it.
+          String errorMessage = "Build server version " + GitBuildId.getVersion() +
+            " is not compatible with App Inventor version " + gitBuildVersion + ".";
+          LOG.severe(errorMessage);
+          // This request was rejected because the gitBuildVersion parameter did not equal the
+          // expected value.
+          rejectedAsyncEclipseBuildRequests.incrementAndGet();
+          cleanUp();
+          // Here, we use CONFLICT (response code 409), which means (according to rfc2616, section
+          // 10) "The request could not be completed due to a conflict with the current state of the
+          // resource."
+          return Response.status(Response.Status.CONFLICT).type(MediaType.TEXT_PLAIN_TYPE).entity(errorMessage).build();
+        }
+      }
+
+      Runnable buildTask = new Runnable() {
+          @Override
+          public void run() {
+            int count = buildCount.incrementAndGet();
+            try {
+              LOG.info("START NEW BUILD " + count);
+              checkMemory();
+              
+              buildEclipseProjectAndCreateZip(userName, inputZipFile, buildOption);
+
+              // Send zip back to the callbackUrl
+              LOG.info("CallbackURL: " + callbackUrlStr);
+              URL callbackUrl = new URL(callbackUrlStr);
+              HttpURLConnection connection = (HttpURLConnection) callbackUrl.openConnection();
+              connection.setDoOutput(true);
+              connection.setRequestMethod("POST");
+              // Make sure we aren't misinterpreted as
+              // form-url-encoded
+              connection.addRequestProperty("Content-Type","application/zip; charset=utf-8");
+              connection.setConnectTimeout(60000);
+              connection.setReadTimeout(60000);
+              BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(connection.getOutputStream());
+              try {
+                BufferedInputStream bufferedInputStream = new BufferedInputStream(
+                  new FileInputStream(outputZip));
+                try {
+                  ByteStreams.copy(bufferedInputStream,bufferedOutputStream);
+                  checkMemory();
+                  bufferedOutputStream.flush();
+                } finally {
+                  bufferedInputStream.close();
+                }
+              } finally {
+                bufferedOutputStream.close();
+              }
+              if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {LOG.severe("Bad Response Code!: "+ connection.getResponseCode());
+                // TODO(user) Maybe do some retries
+              }
+            } catch (Exception e) {
+              // TODO(user): Maybe send a failure callback
+              LOG.severe("Exception: " + e.getMessage()+ " and the length is of inputZip is "+ inputZip.length());
+            } finally {
+              cleanUp();
+              checkMemory();
+              LOG.info("BUILD " + count + " FINISHED");
+            }
+          }
+        };
+      try {
+        buildExecutor.execute(buildTask);
+      } catch (RejectedExecutionException e) {
+        // This request was rejected because all threads in the build
+        // executor are busy.
+        rejectedAsyncEclipseBuildRequests.incrementAndGet();
+        cleanUp();
+        // Here, we use SERVICE_UNAVAILABLE (response code 503), which
+        // means (according to rfc2616, section 10) "The server is
+        // currently unable to handle the request due to a temporary
+        // overloading or maintenance of the server. The implication
+        // is that this is a temporary condition which will be
+        // alleviated after some delay."
+        return Response.status(Response.Status.SERVICE_UNAVAILABLE).type(MediaType.TEXT_PLAIN_TYPE).entity("The build server is currently at maximum capacity.").build();
+      }
+    }
+    return Response.ok().type(MediaType.TEXT_PLAIN_TYPE)
+      .entity("" + ProjectBuilder.getEclipseBuildStatus()).build();
+  }
+  
   private void buildAndCreateZip(String userName, File inputZipFile)
     throws IOException, JSONException {
     Result buildResult = build(userName, inputZipFile);
@@ -469,6 +618,33 @@ public class BuildServer {
     zipOutputStream.flush();
     zipOutputStream.close();
   }
+  
+	private void buildEclipseProjectAndCreateZip(String userName, File inputZipFile, int buildOption)
+			throws IOException, JSONException {
+		Result buildResult = buildEclipseProject(userName, inputZipFile, buildOption);
+		boolean buildSucceeded = buildResult.succeeded();
+		outputZip = File.createTempFile(inputZipFile.getName(), ".zip");
+		outputZip.deleteOnExit(); // In case build server is killed before
+									// cleanUp executes.
+		ZipOutputStream zipOutputStream = new ZipOutputStream(
+				new BufferedOutputStream(new FileOutputStream(outputZip)));
+		if (buildSucceeded) {
+			zipOutputStream.putNextEntry(new ZipEntry(outputEclipseZip.getName()));
+			Files.copy(outputEclipseZip, zipOutputStream);
+			successfulEclipseBuildRequests.getAndIncrement();
+		} else {
+			LOG.severe("Build Eclipse Project " + eclipseBuildCount.get() + " Failed: "
+					+ buildResult.getResult() + " " + buildResult.getError());
+			failedEclipseBuildRequests.getAndIncrement();
+		}
+		zipOutputStream.putNextEntry(new ZipEntry("build.out"));
+		String buildOutputJson = genBuildOutput(buildResult);
+		PrintStream zipPrintStream = new PrintStream(zipOutputStream);
+		zipPrintStream.print(buildOutputJson);
+		zipPrintStream.flush();
+		zipOutputStream.flush();
+		zipOutputStream.close();
+	} 
 
   private String genBuildOutput(Result buildResult) throws JSONException {
     JSONObject buildOutputJsonObj = new JSONObject();
@@ -506,6 +682,31 @@ public class BuildServer {
     return buildResult;
   }
 
+	private Result buildEclipseProject(String userName, File inputZipFile, int buildOption) throws IOException {
+		outputDir = Files.createTempDir();
+		// We call outputDir.deleteOnExit() here, in case build server is killed
+		// before cleanUp
+		// executes. However, it is likely that the directory won't be empty and
+		// therefore, won't
+		// actually be deleted. That's only if the build server is killed (via
+		// ctrl+c) while a build
+		// is happening, so we should be careful about that.
+		outputDir.deleteOnExit();
+		Result buildResult = projectBuilder.buildEclipseProject(userName,inputZipFile, outputDir, buildOption);
+		String buildOutput = buildResult.getOutput();
+		LOG.info("Build output: " + buildOutput);
+		String buildError = buildResult.getError();
+		LOG.info("Build error output: " + buildError);
+		
+	    outputEclipseZip = projectBuilder.getOutputEclipseZip();
+	    
+	    if (outputEclipseZip != null) {
+	    	outputEclipseZip.deleteOnExit();  // In case build server is killed before cleanUp executes.
+	    }		
+		checkMemory();
+		return buildResult;
+	}  
+  
   private void cleanUp() {
     if (inputZip != null) {
       inputZip.delete();

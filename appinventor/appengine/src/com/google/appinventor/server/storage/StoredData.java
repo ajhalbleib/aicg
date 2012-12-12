@@ -124,6 +124,8 @@ public class StoredData {
     // The role that file play: source code, build target or temporary file
     enum RoleEnum {
       SOURCE,
+      ECLIPSE_PROJECT_TARGET,
+      JAVA_SOURCE_TARGET,
       TARGET,
       TEMPORARY
     }

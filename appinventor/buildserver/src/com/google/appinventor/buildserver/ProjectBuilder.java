@@ -19,10 +19,11 @@ import com.google.common.io.Resources;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
@@ -33,6 +34,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 import org.apache.commons.io.FileUtils;
 
@@ -44,6 +47,8 @@ import org.apache.commons.io.FileUtils;
 public final class ProjectBuilder {
 
   private File outputApk;
+  private File outputEclipseZip; 
+  
   private File outputKeystore;
   private boolean saveKeystore;
 
@@ -70,11 +75,25 @@ public final class ProjectBuilder {
 
   private static final String ALL_COMPONENT_TYPES =
       Compiler.RUNTIME_FILES_DIR + "simple_components.txt";
+  
+  private static int eclipseBuildStatus = 10;
 
-  public File getOutputApk() {
+  public static int getEclipseBuildStatus() {
+	return eclipseBuildStatus;
+}
+
+public static void setEclipseBuildStatus(int eclipseBuildStatus) {
+	ProjectBuilder.eclipseBuildStatus = eclipseBuildStatus;
+}
+
+public File getOutputApk() {
     return outputApk;
   }
 
+  public File getOutputEclipseZip() {
+	    return outputEclipseZip;
+  }
+  
   public File getOutputKeystore() {
     return outputKeystore;
   }
@@ -201,8 +220,166 @@ public final class ProjectBuilder {
     }
   }
 
-  private void genYailFilesIfNecessary(List<String> sourceFiles)
+	Result buildEclipseProject(String userName, File inputZipFile, File outputDir, int buildOption) {
+		try {
+			// Download project files into a temporary directory
+			File projectRoot = createNewTempDir();
+			LOG.info("temporary project root: " + projectRoot.getAbsolutePath());
+			try {
+
+				// Create placeholders for output and errors 
+				StringBuffer outputStringBuffer = new StringBuffer();
+				StringBuffer errorStringBuffer = new StringBuffer();
+				File tmpProjectOutputDir = null;
+				ArrayList<File> yailFiles = null;
+				
+				if(buildOption == 2) {
+			        List<String> sourceFiles;
+			        
+			        setEclipseBuildStatus(20);
+			        try {
+			          sourceFiles = extractProjectFiles(new ZipFile(inputZipFile), projectRoot);
+			        } catch (IOException e) {
+			          LOG.severe("unexpected problem extracting project file from zip");
+			          return Result.createFailingResult("", "Problems processing zip file.");
+			        }
+			        
+			        setEclipseBuildStatus(30);
+			        try {
+			        	yailFiles = genYailFilesIfNecessary(sourceFiles);
+			          } catch (YailGenerationException e) {
+			            // Note that we're using a special result code here for the case of a Yail gen error.
+			            return new Result(Result.YAIL_GENERATION_ERROR, "", e.getMessage(), e.getFormName());
+			          } catch (Exception e) {
+			            LOG.severe("Unknown exception signalled by genYailFilesIf Necessary");
+			            e.printStackTrace();
+			            return Result.createFailingResult("", "Unexpected problems generating YAIL.");
+			          }	
+			        
+			        setEclipseBuildStatus(60);
+					try {
+						genJavaSources(yailFiles, projectRoot, outputStringBuffer, errorStringBuffer);
+					} catch (IOException e) {
+						return new Result(Result.YAIL_TO_JAVA_GENERATION_ERROR, "",
+								e.getMessage(), "- Not Applicable -");
+					} catch (Exception e) {
+						LOG.severe("Unknown exception signalled by buildEclipseProject with 'build Java sources only' option");
+						e.printStackTrace();
+						return Result.createFailingResult("",
+								"Unexpected problems generating Java sources out of AppInvertor source");
+					}
+					setEclipseBuildStatus(80);
+					outputEclipseZip = new File(outputDir, "JavaFiles.zip");
+					tmpProjectOutputDir = new File(projectRoot + File.separator + "java");
+			        setEclipseBuildStatus(100);
+				} else {
+			        
+					try {
+						setEclipseBuildStatus(50);
+						genEclipseProject(inputZipFile,projectRoot, outputStringBuffer, errorStringBuffer);
+					} catch (IOException e) {
+						return new Result(Result.ECLIPSE_PROJECT_GENERATION_ERROR, "",
+								e.getMessage(), "- Not Applicable -");
+					} catch (Exception e) {
+						LOG.severe("Unknown exception signalled by buildEclipseProject");
+						e.printStackTrace();
+						return Result.createFailingResult("",
+								"Unexpected problems generating Eclipse project out of AppInvertor source");
+					}
+					setEclipseBuildStatus(80);
+					outputEclipseZip = new File(outputDir,"EclipseProject.zip");
+					tmpProjectOutputDir = new File(projectRoot + File.separator + "output");
+					setEclipseBuildStatus(100);
+				}
+
+				if(tmpProjectOutputDir.isDirectory() && tmpProjectOutputDir.exists()) {
+		        	ZipOutputStream zipOS = new ZipOutputStream(new FileOutputStream(outputEclipseZip));
+		        	ZipUtil.recursiveZip(tmpProjectOutputDir,tmpProjectOutputDir.toURI(),zipOS);
+		        	zipOS.flush();
+		        	zipOS.close();
+		        }
+		        
+				return new Result(true, outputStringBuffer.toString(),errorStringBuffer.toString());
+			} finally {
+				FileUtils.deleteDirectory(new File(projectRoot.getCanonicalPath()));
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			return Result.createFailingResult("","Server error performing Eclipse Project build");
+		}
+	}
+
+	private void genJavaSources(ArrayList<File> yailFiles, File projectRoot,
+			StringBuffer outputStringBuffer, StringBuffer errorStringBuffer) throws IOException,
+			YailToJavaGenerationException {
+		
+		File tmpJavaFolder = new File(projectRoot + File.separator + "java");
+		tmpJavaFolder.deleteOnExit(); 
+		tmpJavaFolder.mkdir();
+
+	    StringBuffer out = new StringBuffer();
+	    StringBuffer err = new StringBuffer();
+		
+		for(File yailFile : yailFiles) {
+			StringBuffer innerOut = new StringBuffer();
+		    StringBuffer innerErr = new StringBuffer();
+			String[] commandLine = {
+					System.getProperty("java.home") + "/bin/java",
+					"-mx1024M",
+					"-jar",
+					Compiler.getResource(Compiler.RUNTIME_FILES_DIR
+							+ "yail-to-java.jar"),
+					yailFile.getAbsolutePath() 
+			};
+			
+			int exitValue = Execution.execute(null, commandLine, innerOut, innerErr);
+	
+			if (exitValue != 0) {
+				errorStringBuffer = errorStringBuffer.append(innerErr);
+				throw new YailToJavaGenerationException(innerErr.toString());
+			}
+			
+			String javaSource = innerOut.toString();
+			File javaSourceFile = new File(tmpJavaFolder, yailFile.getName().replace(".yail", ".java"));
+			Files.write(javaSource, javaSourceFile, Charsets.UTF_8);
+			out = out.append(innerOut);
+			err = err.append(innerErr);
+		}
+	}
+	
+	private void genEclipseProject(File inputZipFile, File projectRoot,
+			StringBuffer outputStringBuffer, StringBuffer errorStringBuffer) throws IOException,
+			EclipseProjectGenerationException {
+		// Copy the input file to a temporary file
+		File tmpInputZipFile = File.createTempFile(inputZipFile.getName(),
+				".zip", projectRoot);
+		tmpInputZipFile.deleteOnExit();
+		Files.copy(inputZipFile, tmpInputZipFile);
+
+		// Create the output folder
+		File tmpOutputFolder = new File(projectRoot + File.separator + "output");
+		tmpOutputFolder.deleteOnExit();
+		tmpOutputFolder.mkdir();
+
+		String[] commandLine = {
+				System.getProperty("java.home") + "/bin/java",
+				"-mx1024M",
+				"-cp",
+				Compiler.getResource(Compiler.RUNTIME_FILES_DIR
+						+ "app-inventor-to-eclipse-project.jar"),
+				"AppInventorToEclipseProject",
+				tmpInputZipFile.getAbsolutePath(),
+				tmpOutputFolder.getAbsolutePath() };
+
+		int exitValue = Execution.execute(null, commandLine, outputStringBuffer, errorStringBuffer);
+
+		if (exitValue != 0)
+			throw new EclipseProjectGenerationException(errorStringBuffer.toString());
+	}
+    
+  private ArrayList<File> genYailFilesIfNecessary(List<String> sourceFiles)
       throws IOException, YailGenerationException {
+	ArrayList<File> yailFiles = new ArrayList<File>();  
     // Filter out the files that aren't really source files (i.e. that don't end in .scm or .yail)
     Collection<String> formAndYailSourceFiles = Collections2.filter(
         sourceFiles,
@@ -220,10 +397,11 @@ public final class ProjectBuilder {
         // Note: Famous last words: The following contains() makes this method O(n**2) but n should
         // be pretty small.
         if (!sourceFiles.contains(yailFilePath)) {
-          generateYail(rootPath);
+          yailFiles.add(generateYail(rootPath));
         }
       }
     }
+    return yailFiles;
   }
 
   private static Set<String> getAllComponentTypes() throws IOException {
@@ -468,8 +646,23 @@ public final class ProjectBuilder {
       return formName;
     }
   }
-
+  
+	private static class EclipseProjectGenerationException extends Exception {
+		EclipseProjectGenerationException(String message) {
+			super(message);
+		}
+	}
+	
+	private static class YailToJavaGenerationException extends Exception {
+		YailToJavaGenerationException(String message) {
+			super(message);
+		}
+	}
+	
   public int getProgress() {
     return Compiler.getProgress();
   }
 }
+
+
+

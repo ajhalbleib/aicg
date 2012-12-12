@@ -267,6 +267,8 @@ public interface StorageIo {
    * @param fileIds  list of file IDs to add to the projects output file list
    */
   void addOutputFilesToProject(String userId, long projectId, String...fileIds);
+  void addEclipseProjectOutputFilesToProject(String userId, long projectId, String...fileIds);
+  void addJavaSourceOutputFilesToProject(String userId, long projectId, String...fileIds);
 
   /**
    * Removes file IDs from the project's list of source files, updating the
@@ -305,6 +307,8 @@ public interface StorageIo {
    * @return  list of output file ID
    */
   List<String> getProjectOutputFiles(String userId, long projectId);
+  List<String> getEclipseProjectOutputFiles(String userId, long projectId);
+  List<String> getJavaSourceOutputFiles(String userId, long projectId);
 
   /**
    * Uploads a file.

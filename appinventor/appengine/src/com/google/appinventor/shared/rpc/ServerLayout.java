@@ -89,6 +89,21 @@ public class ServerLayout {
 
   /**
    * Relative path within {@link com.google.appinventor.server.DownloadServlet}
+   * for downloading a project's source as an Eclipse project
+   */
+  
+  public static final String DOWNLOAD_AS_ECLIPSE_PROJECT = "eclipse-project";
+
+  /**
+   * Relative path within {@link com.google.appinventor.server.DownloadServlet}
+   * for downloading a project's Java sources
+   */
+  
+  public static final String DOWNLOAD_AS_JAVA_SOURCES = "java-sources";
+
+  
+  /**
+   * Relative path within {@link com.google.appinventor.server.DownloadServlet}
    * for downloading a project's sources
    */
   public static final String DOWNLOAD_PROJECT_SOURCE = "project-source";
@@ -181,6 +196,12 @@ public class ServerLayout {
    */
   public static final String RECEIVE_BUILD_SERVLET = "receivebuild";
 
+  /**
+   * Relative path of the {@link com.google.appinventor.server.ReceiveEclipseProjectServlet} within
+   * {@link #ODE_BASEURL_NOAUTH}
+   */
+  public static final String RECEIVE_ECLIPSE_PROJECT_SERVLET = "receiveEclipseProject";
+  
   /**
    * Name of the form element to upload files.
    */

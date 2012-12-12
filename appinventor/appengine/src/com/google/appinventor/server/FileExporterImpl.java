@@ -31,6 +31,55 @@ public final class FileExporterImpl implements FileExporter {
   private final StorageIo storageIo = StorageIoInstanceHolder.INSTANCE;
 
   @Override
+  public RawFile exportEclipseProjectOutputFile(String userId, long projectId, @Nullable String target)
+      throws IOException {
+    // Download project output file.
+    List<String> files = storageIo.getEclipseProjectOutputFiles(userId, projectId);
+    if (target != null) {
+      // Target given - filter file list
+      files = filterByFilePrefix(files, "eclipse/" + target + '/');
+    }
+
+    // We expect the files List to contain:
+    //   eclipse/Android/EclipseProject.zip
+    //   eclipse/Android/build.out
+    // There should never be more than one .apk file.
+
+    for (String fileName : files) {
+      if (fileName.endsWith(".zip")) {
+        byte[] content = storageIo.downloadRawFile(userId, projectId, fileName);
+        return new RawFile(StorageUtil.basename(fileName), content);
+      }
+    }
+
+    throw new IllegalArgumentException("No files to download");
+  }
+
+  @Override
+  public RawFile exportJavaSourcesOutputFile(String userId, long projectId, @Nullable String target)
+      throws IOException {
+    // Download project output file.
+    List<String> files = storageIo.getJavaSourceOutputFiles(userId, projectId);
+    if (target != null) {
+      // Target given - filter file list
+      files = filterByFilePrefix(files, "java/" + target + '/');
+    }
+
+    // We expect the files List to contain:
+    //   java/Android/JavaSources.zip
+    //   java/Android/build.out
+
+    for (String fileName : files) {
+      if (fileName.endsWith(".zip")) {
+        byte[] content = storageIo.downloadRawFile(userId, projectId, fileName);
+        return new RawFile(StorageUtil.basename(fileName), content);
+      }
+    }
+
+    throw new IllegalArgumentException("No files to download");
+  }  
+  
+  @Override
   public RawFile exportProjectOutputFile(String userId, long projectId, @Nullable String target)
       throws IOException {
     // Download project output file.

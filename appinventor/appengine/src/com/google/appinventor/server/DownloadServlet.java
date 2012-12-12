@@ -14,10 +14,22 @@ import com.google.appinventor.shared.rpc.ServerLayout;
 import com.google.appinventor.shared.rpc.project.ProjectSourceZip;
 import com.google.appinventor.shared.rpc.project.RawFile;
 import com.google.appinventor.shared.storage.StorageUtil;
+import com.google.common.io.ByteStreams;
+import com.google.gwt.user.client.Window;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.Enumeration;
 import java.util.NoSuchElementException;
 import java.util.logging.Logger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
@@ -94,7 +106,7 @@ public class DownloadServlet extends OdeServlet {
     CACHE_HEADERS.setNotCacheable(resp);
     resp.setContentType(CONTENT_TYPE);
 
-    RawFile downloadableFile;
+    RawFile downloadableFile = null;
 
     String userId = null;
 
@@ -113,7 +125,38 @@ public class DownloadServlet extends OdeServlet {
         String target = (uriComponents.length > TARGET_INDEX) ? uriComponents[TARGET_INDEX] : null;
         downloadableFile = fileExporter.exportProjectOutputFile(userId, projectId, target);
 
-      } else if (downloadKind.equals(ServerLayout.DOWNLOAD_PROJECT_SOURCE)) {
+      } else if (downloadKind.equals(ServerLayout.DOWNLOAD_AS_ECLIPSE_PROJECT)) {
+          // Download project output file.
+          uriComponents = uri.split("/", SPLIT_LIMIT_PROJECT_OUTPUT);
+          long projectId = Long.parseLong(uriComponents[PROJECT_ID_INDEX]);
+          String target = (uriComponents.length > TARGET_INDEX) ? uriComponents[TARGET_INDEX] : null;
+          downloadableFile = fileExporter.exportEclipseProjectOutputFile(userId, projectId, target);
+      } else if (downloadKind.equals(ServerLayout.DOWNLOAD_AS_JAVA_SOURCES)) {
+          // Download project output file.
+          uriComponents = uri.split("/", SPLIT_LIMIT_PROJECT_OUTPUT);
+          long projectId = Long.parseLong(uriComponents[PROJECT_ID_INDEX]);
+          String target = (uriComponents.length > TARGET_INDEX) ? uriComponents[TARGET_INDEX] : null;
+          RawFile tmpDownloadableFile = fileExporter.exportJavaSourcesOutputFile(userId, projectId, target);
+          ZipInputStream zipStream = new ZipInputStream(new ByteArrayInputStream(tmpDownloadableFile.getContent()));
+          ZipEntry entry = null;
+          int i = 0;
+          while ((entry = zipStream.getNextEntry()) != null) {
+        	  i++;
+        	  if (i>1)break;
+        	  else {
+        		  ByteArrayOutputStream byteOutputStream = new ByteArrayOutputStream();
+        		  int readCount = 0;
+        		  byte[] buffer = new byte[1024];
+        		  while((readCount = zipStream.read(buffer)) > 0) 
+        			  byteOutputStream.write(buffer,0,readCount);
+                  downloadableFile = new RawFile(entry.getName(),byteOutputStream.toByteArray());
+        	  }
+          }
+          if (i>1) {
+        	  downloadableFile = tmpDownloadableFile;
+          }
+        }
+      else if (downloadKind.equals(ServerLayout.DOWNLOAD_PROJECT_SOURCE)) {
         // Download project source files as a zip.
         long projectId = Long.parseLong(uriComponents[PROJECT_ID_INDEX]);
         uriComponents = uri.split("/", SPLIT_LIMIT_PROJECT_SOURCE);

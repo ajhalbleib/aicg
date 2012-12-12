@@ -819,6 +819,48 @@ public class ObjectifyStorageIo implements  StorageIo {
     }
   }
 
+  @Override
+  public void addEclipseProjectOutputFilesToProject(final String userId, final long projectId,
+      final String... fileNames) {
+    if (!getProjects(userId).contains(projectId)) {
+      throw CrashReport.createAndLogError(LOG, null,
+          collectUserProjectErrorInfo(userId, projectId),
+          new UnauthorizedAccessException(userId, projectId, null));
+    }
+    try {
+      runJobWithRetries(new JobRetryHelper() {
+        @Override
+        public void run(Objectify datastore) {
+          addFilesToProject(datastore, projectId, FileData.RoleEnum.ECLIPSE_PROJECT_TARGET, false, fileNames);
+        }
+      });
+    } catch (ObjectifyException e) {
+      throw CrashReport.createAndLogError(LOG, null,
+          collectProjectErrorInfo(userId, projectId, fileNames[0]), e);
+    }
+  }  
+
+  @Override
+  public void addJavaSourceOutputFilesToProject(final String userId, final long projectId,
+      final String... fileNames) {
+    if (!getProjects(userId).contains(projectId)) {
+      throw CrashReport.createAndLogError(LOG, null,
+          collectUserProjectErrorInfo(userId, projectId),
+          new UnauthorizedAccessException(userId, projectId, null));
+    }
+    try {
+      runJobWithRetries(new JobRetryHelper() {
+        @Override
+        public void run(Objectify datastore) {
+          addFilesToProject(datastore, projectId, FileData.RoleEnum.JAVA_SOURCE_TARGET, false, fileNames);
+        }
+      });
+    } catch (ObjectifyException e) {
+      throw CrashReport.createAndLogError(LOG, null,
+          collectProjectErrorInfo(userId, projectId, fileNames[0]), e);
+    }
+  }  
+  
   private void addFilesToProject(Objectify datastore, long projectId, FileData.RoleEnum role,
       boolean changeModDate, String... fileNames) {
     List<FileData> addedFiles = new ArrayList<FileData>();
@@ -950,6 +992,50 @@ public class ObjectifyStorageIo implements  StorageIo {
     return result.t;
   }
 
+  @Override
+  public List<String> getEclipseProjectOutputFiles(final String userId, final long projectId) {
+   if (!getProjects(userId).contains(projectId)) {
+     throw CrashReport.createAndLogError(LOG, null,
+         collectUserProjectErrorInfo(userId, projectId),
+         new UnauthorizedAccessException(userId, projectId, null));
+   }
+   final Result<List<String>> result = new Result<List<String>>();
+   try {
+      runJobWithRetries(new JobRetryHelper() {
+        @Override
+        public void run(Objectify datastore) {
+          result.t = getProjectFiles(datastore, projectId, FileData.RoleEnum.ECLIPSE_PROJECT_TARGET);
+        }
+      });
+    } catch (ObjectifyException e) {
+      throw CrashReport.createAndLogError(LOG, null,
+          collectUserProjectErrorInfo(userId, projectId), e);
+    }
+    return result.t;
+  }
+  
+  @Override
+  public List<String> getJavaSourceOutputFiles(final String userId, final long projectId) {
+   if (!getProjects(userId).contains(projectId)) {
+     throw CrashReport.createAndLogError(LOG, null,
+         collectUserProjectErrorInfo(userId, projectId),
+         new UnauthorizedAccessException(userId, projectId, null));
+   }
+   final Result<List<String>> result = new Result<List<String>>();
+   try {
+      runJobWithRetries(new JobRetryHelper() {
+        @Override
+        public void run(Objectify datastore) {
+          result.t = getProjectFiles(datastore, projectId, FileData.RoleEnum.JAVA_SOURCE_TARGET);
+        }
+      });
+    } catch (ObjectifyException e) {
+      throw CrashReport.createAndLogError(LOG, null,
+          collectUserProjectErrorInfo(userId, projectId), e);
+    }
+    return result.t;
+  }
+  
   private List<String> getProjectFiles(Objectify datastore, long projectId,
                                        FileData.RoleEnum role) {
     Key<ProjectData> projectKey = projectKey(projectId);

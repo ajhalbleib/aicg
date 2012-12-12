@@ -95,10 +95,21 @@ public interface ProjectServiceAsync {
   void build(long projectId, String target, AsyncCallback<RpcResult> callback);
 
   /**
+   * @see ProjectService#buildEclipseProject(long, String, int)
+   */
+  void buildEclipseProject(long projectId, String target, int buildOption, AsyncCallback<RpcResult> callback);
+
+  /**
    * @see ProjectService#getBuildResult(long, String)
    */
   void getBuildResult(long projectId, String target, AsyncCallback<RpcResult> callback);
 
+  /**
+   * @see ProjectService#getEclipseProjectBuildResult(long, String, int)
+   */
+  void getEclipseProjectBuildResult(long projectId, String target, int buildOption, AsyncCallback<RpcResult> callback);
+
+  
   /**
    * @see ProjectService#addFile(long, String)
    */
